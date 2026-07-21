@@ -1,0 +1,18 @@
+[package]
+name = "esp32-mqtt-blink"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+esp-idf-svc = { version = "0.52", features = ["critical-section"] }
+esp-idf-hal = "0.46"
+esp-idf-sys = { version = "0.37", features = ["binstart"] }
+log = "0.4"
+anyhow = "1"
+toml-cfg = "0.2"
+
+[build-dependencies]
+embuild = "0.33"
+
+[profile.release]
+opt-level = "s"

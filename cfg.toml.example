@@ -1,0 +1,7 @@
+[esp32-mqtt-blink]
+wifi_ssid = ""
+wifi_pass = ""
+mqtt_url = "mqtt://broker.example.com:1883"
+mqtt_client_id = "esp32-blinker"
+topic_speed = "esp32/blink/speed_level"
+topic_status = "esp32/blink/status"
