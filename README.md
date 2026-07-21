@@ -18,11 +18,17 @@ espup install
 # Source the generated env file as instructed by espup, e.g.:
 . $HOME/export-esp.sh
 
-cargo install espflash
+cargo install espflash ldproxy
 ```
 
+`rust-toolchain.toml` and `.cargo/config.toml` are committed in this repo and pin the
+`esp` rustup toolchain and `xtensa-esp32-espidf` target, so `cargo build` targets the
+ESP32 correctly out of the box — no manual toolchain/target setup beyond the above.
+
 You'll also need an MQTT broker reachable from the device (e.g. Mosquitto,
-HiveMQ, or a cloud broker) and its address.
+HiveMQ, or a cloud broker) and its address. If you're running Mosquitto locally for
+testing, make sure it's listening on your LAN interface, not just loopback — see
+`DEVELOPMENT_JOURNEY.md` (#7) if the device can't reach it.
 
 ## Setup
 
@@ -62,6 +68,12 @@ espflash flash --monitor target/xtensa-esp32-espidf/release/esp32-mqtt-blink
 (Exact target triple depends on your `esp-idf-svc` / `espup` version — check
 `cargo build` output if the path above doesn't match.)
 
+This has been built, flashed, and verified end-to-end against real hardware and a real
+MQTT broker. If you hit a build or runtime error along the way, check
+`DEVELOPMENT_JOURNEY.md` first — it covers the toolchain and MQTT-client issues most
+likely to come up (target/toolchain mismatches, `c_char` signedness errors, MQTT
+subscribe races, broker connectivity) with root causes and fixes.
+
 ## Usage
 
 Publish a level 0–10 to the speed topic:
@@ -85,10 +97,15 @@ Example payload: `{"level":7,"delay_ms":367,"reason":"updated"}`
 
 ```
 esp32-mqtt-blink/
+├── .cargo/config.toml           # pins target = xtensa-esp32-espidf, linker = ldproxy
+├── .claude/skills/esp32-rust-idf/SKILL.md  # reusable ESP32 Rust toolchain/MQTT playbook
+├── rust-toolchain.toml          # pins the `esp` rustup toolchain
 ├── Cargo.toml
 ├── build.rs
-├── cfg.toml.example    # committed template, no real values
-├── cfg.toml            # your real secrets — gitignored, fill in after cloning
+├── cfg.toml.example              # committed template, no real values
+├── cfg.toml                      # your real secrets — gitignored, fill in after cloning
+├── CLAUDE.md                     # architecture notes for AI coding assistants
+├── DEVELOPMENT_JOURNEY.md        # issues hit + fixes while bringing this up on hardware
 ├── .gitignore
 └── src/main.rs
 ```
