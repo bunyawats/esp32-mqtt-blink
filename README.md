@@ -1,14 +1,25 @@
 # esp32-mqtt-blink
 
-ESP32 firmware (Rust, `esp-idf-svc` std stack) that blinks an LED at a speed
-controlled over MQTT, using a simple 0–10 speed level instead of raw
-milliseconds.
+ESP32 firmware (Rust, `esp-idf-svc` std stack) that drives an onboard LED over MQTT. Designed to
+be controlled by an AI agent ("Hermes") shelling out to `mosquitto_pub`/similar from another
+machine on the same LAN, though any MQTT client works the same way.
 
-- Level `0` → LED off
-- Level `1` → slowest blink
-- Level `10` → fastest blink
-- Delay-per-level is precomputed at **compile time** into a const lookup
-  table (`DELAY_TABLE`) — no runtime calculation, no heap allocation.
+Two independent commands, on two separate topics:
+
+- **`blink <0-10>`** — a speed level (not raw milliseconds):
+  - Level `0` → LED off
+  - Level `1` → slowest blink
+  - Level `10` → fastest blink
+  - Delay-per-level is precomputed at **compile time** into a const lookup
+    table (`DELAY_TABLE`) — no runtime calculation, no heap allocation.
+- **`switch on|off|toggle`** — a separate on/off gate that **completely bypasses the blink timing
+  loop**: `on` holds the LED high, `off` holds it low, neither one "resumes blinking." `toggle`
+  treats a prior `blink` command as "currently on," so `blink 5` → `switch toggle` deterministically
+  turns the LED off.
+
+On boot, the firmware also picks a sensible default before any command arrives: solid on once
+connected to the broker, or fast-blinking (`blink 10`) if it can't reach MQTT within 10s. See
+`IMPLEMENTATION_PLAN.md` for the full design rationale.
 
 ## Prerequisites
 
@@ -46,8 +57,9 @@ testing, make sure it's listening on your LAN interface, not just loopback — s
    wifi_pass = "YourWiFiPassword"
    mqtt_url = "mqtt://broker.example.com:1883"
    mqtt_client_id = "esp32-blinker"
-   topic_speed = "esp32/blink/speed_level"
-   topic_status = "esp32/blink/status"
+   topic_speed = "esp32/speed_level"
+   topic_switch = "esp32/switch"
+   topic_status = "esp32/status"
    ```
 
    `cfg.toml` is gitignored — your credentials never get committed.
@@ -76,29 +88,65 @@ subscribe races, broker connectivity) with root causes and fixes.
 
 ## Usage
 
+### `blink` — speed level
+
 Publish a level 0–10 to the speed topic:
 
 ```bash
-mosquitto_pub -h broker.example.com -t esp32/blink/speed_level -m 10   # fastest
-mosquitto_pub -h broker.example.com -t esp32/blink/speed_level -m 1    # slowest
-mosquitto_pub -h broker.example.com -t esp32/blink/speed_level -m 0    # off
+mosquitto_pub -h broker.example.com -t esp32/speed_level -m 10   # fastest
+mosquitto_pub -h broker.example.com -t esp32/speed_level -m 1    # slowest
+mosquitto_pub -h broker.example.com -t esp32/speed_level -m 0    # off (within blink mode)
 ```
 
-Watch device status (published on update, on rejection, and every 30s as a
-heartbeat):
+### `switch` — on/off gate, bypasses the blink loop entirely
 
 ```bash
-mosquitto_sub -h broker.example.com -t esp32/blink/status
+mosquitto_pub -h broker.example.com -t esp32/switch -m "on"      # LED held high, blink loop skipped entirely
+mosquitto_pub -h broker.example.com -t esp32/switch -m "off"     # LED held low, blink loop skipped entirely
+mosquitto_pub -h broker.example.com -t esp32/switch -m "toggle"  # flips on/off; a prior blink command counts as "on"
 ```
 
-Example payload: `{"level":7,"delay_ms":367,"reason":"updated"}`
+### Status
+
+Watch device status (published on every command, on rejection, on the boot-time defaults below,
+and every 30s as a heartbeat):
+
+```bash
+mosquitto_sub -h broker.example.com -t esp32/status
+```
+
+`level`/`delay_ms` are `null` whenever `mode` isn't `"blink"`, since neither describes anything
+actually driving the LED while it's held statically on/off:
+
+```json
+{"mode":"blink","level":7,"delay_ms":367,"reason":"updated"}
+```
+```json
+{"mode":"on","level":null,"delay_ms":null,"reason":"switch_on"}
+```
+```json
+{"mode":"off","level":null,"delay_ms":null,"reason":"switch_off"}
+```
+
+### Boot-time defaults
+
+Before any command arrives from the network, the firmware picks a state on its own:
+
+- **Can't reach the broker within 10s of WiFi connecting** → `blink 10` (fast-blink distress
+  signal), `reason:"offline_fallback"`.
+- **Successfully subscribes, no command received yet** → `switch on` (solid light = "alive,
+  connected, idle"), `reason:"connected_default"`. This still applies even if the offline
+  fallback already fired first — a broker that comes up late correctly overrides the fast-blink
+  signal with a solid one.
+
+Both defaults are one-time boot checks — verified end-to-end on real hardware, see
+`IMPLEMENTATION_PLAN.md`'s test log for the exact timing observed.
 
 ## Project layout
 
 ```
 esp32-mqtt-blink/
 ├── .cargo/config.toml           # pins target = xtensa-esp32-espidf, linker = ldproxy
-├── .claude/skills/esp32-rust-idf/SKILL.md  # reusable ESP32 Rust toolchain/MQTT playbook
 ├── rust-toolchain.toml          # pins the `esp` rustup toolchain
 ├── Cargo.toml
 ├── build.rs
@@ -106,9 +154,13 @@ esp32-mqtt-blink/
 ├── cfg.toml                      # your real secrets — gitignored, fill in after cloning
 ├── CLAUDE.md                     # architecture notes for AI coding assistants
 ├── DEVELOPMENT_JOURNEY.md        # issues hit + fixes while bringing this up on hardware
+├── IMPLEMENTATION_PLAN.md        # switch command design rationale + hardware test log
 ├── .gitignore
 └── src/main.rs
 ```
+
+The reusable ESP32 Rust toolchain/MQTT playbook lives in the `esp32-rust-idf` Claude Code skill,
+available globally at `~/.claude/skills/` rather than checked into this repo.
 
 ## Notes / next steps
 
