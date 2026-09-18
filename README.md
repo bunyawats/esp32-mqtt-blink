@@ -67,6 +67,13 @@ testing, make sure it's listening on your LAN interface, not just loopback — s
    If `wifi_ssid` is left empty, the firmware fails fast at startup with a
    clear error instead of silently looping.
 
+   Prefer a `.local` mDNS hostname over a literal IP for `mqtt_url` (e.g.
+   `mqtt://your-broker-host.local:1883`) if your broker runs on a machine that gets its
+   address from DHCP. ESP-IDF's lwIP resolves `.local` names via a one-shot mDNS query on
+   every connect/reconnect attempt, so the device keeps working after the broker's IP
+   changes (e.g. a router restart) with no rebuild or reflash — a literal IP breaks
+   silently the next time DHCP reassigns it.
+
 2. Check the LED pin. The code assumes `gpio2` (the onboard LED on many
    ESP32 dev boards). Update `peripherals.pins.gpio2` in `src/main.rs` if
    your board wires the LED elsewhere.
@@ -174,6 +181,13 @@ available globally at `~/.claude/skills/` rather than checked into this repo.
   delay (ms), so the perceived speed change is more dramatic at the fast
   end. Swap `build_delay_table()` for an exponential curve if you want each
   level to feel like an equal visual step.
+- **Broker address survives DHCP changes** by using a `.local` mDNS hostname in `mqtt_url`
+  instead of a literal IP (see Setup above) — this was previously a real problem (a router
+  restart reassigning the broker host's IP silently broke the connection until a
+  rebuild+reflash) and is now handled without any firmware code changes, since ESP-IDF's
+  lwIP already resolves `.local` names fresh on every connect/reconnect. Still assumes mDNS
+  multicast actually reaches the ESP32 over your specific WiFi AP — if that's ever not true
+  on a given network, fall back to a static DHCP reservation for the broker host instead.
 - **Retained MQTT status / LWT**: consider publishing status with
   `retain: true` so a newly-subscribed client immediately sees the last
   known state, and registering a Last Will and Testament message so the

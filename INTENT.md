@@ -49,7 +49,9 @@ These are deliberate omissions, not gaps waiting to be filled. Don't "fix" them 
   prove better.
 - **Runtime configuration.** Config is baked in at compile time by `toml_cfg`. The known cost —
   secrets extractable from the flash image — is accepted for a LAN toy, and documented rather
-  than papered over.
+  than papered over. (Using a `.local` mDNS hostname instead of a literal IP for `mqtt_url`
+  doesn't count as runtime configuration — the value is still a compile-time-baked string;
+  only its DNS resolution happens dynamically, on every connect/reconnect, via ESP-IDF's lwIP.)
 - **Security hardening.** No TLS, no broker auth, no signed commands. This runs on a trusted home
   LAN. Anyone who can reach the broker can blink the LED, and that is fine.
 - **Small, safe-looking dependencies.** `serde_json` would be the obvious "cleanup" for the

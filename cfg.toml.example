@@ -1,6 +1,10 @@
 [esp32-mqtt-blink]
 wifi_ssid = ""
 wifi_pass = ""
+# Prefer a .local mDNS hostname over a literal IP: the broker's DHCP-assigned IP can
+# change (e.g. after a router restart), but ESP-IDF's lwIP resolves .local names via
+# a one-shot mDNS query on every connect/reconnect, so a hostname survives that with
+# no rebuild/reflash. e.g. mqtt_url = "mqtt://your-broker-host.local:1883"
 mqtt_url = "mqtt://broker.example.com:1883"
 mqtt_client_id = "esp32-blinker"
 topic_speed = "esp32/speed_level"
