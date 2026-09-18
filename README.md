@@ -19,7 +19,8 @@ Two independent commands, on two separate topics:
 
 On boot, the firmware also picks a sensible default before any command arrives: solid on once
 connected to the broker, or fast-blinking (`blink 10`) if it can't reach MQTT within 10s. See
-`IMPLEMENTATION_PLAN.md` for the full design rationale.
+`IMPLEMENTATION_PLAN.md` for the full design rationale, and `INTENT.md` for the project's purpose,
+non-goals, and the invariants any change should preserve.
 
 ## Prerequisites
 
@@ -153,6 +154,7 @@ esp32-mqtt-blink/
 ├── cfg.toml.example              # committed template, no real values
 ├── cfg.toml                      # your real secrets — gitignored, fill in after cloning
 ├── CLAUDE.md                     # architecture notes for AI coding assistants
+├── INTENT.md                     # why this project exists: goals, non-goals, invariants
 ├── DEVELOPMENT_JOURNEY.md        # issues hit + fixes while bringing this up on hardware
 ├── IMPLEMENTATION_PLAN.md        # switch command design rationale + hardware test log
 ├── .gitignore

@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+See `INTENT.md` for the project's purpose, non-goals, and invariants — read it before making any
+change that touches the `mode`/`switch` state machine, boot-time defaults, or the compile-time
+config/delay-table design; those are deliberate, not incidental.
+
 ## What this is
 
 Single-binary ESP32 firmware (Rust, `esp-idf-svc` std stack) that drives an onboard LED over MQTT,
