@@ -32,10 +32,10 @@ standard, see §5 for why none apply here and what was used instead.
 
 | ID | Requirement | Source (INTENT.md) | Current implementation |
 |---|---|---|---|
-| FR-1 | `switch on`/`off` bypass the blink timing loop entirely; `switch toggle` after any `blink` command deterministically resolves to `Off`. | Invariant 1 | `src/main.rs:199-212` (switch handler), `:327-357` (main loop `match mode`) |
+| FR-1 | `switch on`/`off` bypass the blink timing loop entirely; `switch toggle` after any `blink` command deterministically resolves to `Off`. | Invariant 1 | `src/main.rs:199-212` (switch handler), `:326-351` (main loop `match mode`) |
 | FR-2 | `level`/`delay_ms` in status payloads are `null` whenever `mode != "blink"`. | Invariant 2 | `src/main.rs:359-380` (`publish_status`) |
-| FR-3 | The connection-draining thread performs no blocking client call (`subscribe`/`publish`/`enqueue`). | Invariant 3 | `src/main.rs:167-240` (drain loop) — status changes go out over `status_tx`, an `mpsc::Sender`, never a direct client call |
-| FR-4 | The offline-fallback boot default is gated on `subscribed`, not `got_real_command`. | Invariant 4 | `src/main.rs:295-304` checks `subscribed`; `got_real_command` is a separate flag set only by real commands (`:179`, `:184`, `:212`) |
+| FR-3 | The connection-draining thread performs no blocking client call (`subscribe`/`publish`/`enqueue`). | Invariant 3 | `src/main.rs:167-234` (drain loop) — status changes go out over `status_tx`, an `mpsc::Sender`, never a direct client call |
+| FR-4 | The offline-fallback boot default is gated on `subscribed`, not `got_real_command`. | Invariant 4 | `src/main.rs:298-304` (offline-fallback thread body) checks `subscribed`; `got_real_command` is a separate flag set only by real commands (`:179`, `:184`, `:212`) |
 | FR-5 | The level→delay mapping is computed at compile time with no heap allocation. | Invariant 5 | `src/main.rs:62-84` (`const fn build_delay_table`, `while`-loop) |
 
 **Requirement for this integration work specifically:** none of FR-1..FR-5 should change as a
@@ -47,7 +47,7 @@ standard, see §5 for why none apply here and what was used instead.
 |---|---|
 | NFR-1 | Every future PR/commit that touches `mode`, `switch`, boot-time defaults, `cfg.toml`/`toml_cfg` config loading, or `build_delay_table()` must state in its commit message or PR description whether it preserves or knowingly changes an `INTENT.md` invariant. |
 | NFR-2 | If a change knowingly changes an invariant, `INTENT.md` must be updated in the **same commit** (this is `INTENT.md`'s own closing rule — see "When this file is wrong" — this spec just makes it a checkable requirement rather than a suggestion). |
-| NFR-3 | `CLAUDE.md` and `AGENTS.md` already point AI assistants at `INTENT.md` before state-machine/boot-default/config changes (commit `76991c8`). Human-facing equivalent: add the same pointer to any future `CONTRIBUTING.md`, should one be created. |
+| NFR-3 | `CLAUDE.md` already points AI assistants at `INTENT.md` before state-machine/boot-default/config changes (commit `76991c8`), and `AGENTS.md` was created with the same pointer already in place (commit `b177ed0`). Human-facing equivalent: add the same pointer to any future `CONTRIBUTING.md`, should one be created. |
 | NFR-4 | The traceability table in §2.1 should be re-verified (line numbers, at minimum) whenever `src/main.rs` is restructured, since it's the only artifact tying the doc's claims to actual code locations. |
 
 ### 2.3 Explicit non-requirements (carried over from `INTENT.md` §Non-goals)
@@ -98,8 +98,8 @@ added in commit `76991c8`); §3.2 just makes the flow explicit for the spec's ow
 | INTENT.md goal | Where it's evidenced today |
 |---|---|
 | Stable MQTT contract | `README.md` "Usage" section (topics/payloads), unchanged since `321305b` |
-| Observable state at all times | `publish_status()` called from 3 call sites: command handler (via channel), subscriber thread's connect-time default, heartbeat thread |
-| Legible physical feedback without network round-trip | Boot defaults: solid on (`MODE_ON`, `:281-283`) vs. fast blink (`MODE_BLINK`/`MAX_LEVEL`, `:302-303`) — see §5.2 for a UX note |
+| Observable state at all times | `publish_status()` is called directly from 2 sites (status-publisher thread draining the channel, `:243`; heartbeat thread, `:317`). That channel is itself fed by 3 distinct senders: the command handler in the drain thread, the subscriber thread's connect-time default (`:283`), and the offline-fallback thread (`:303`). |
+| Legible physical feedback without network round-trip | Boot defaults: solid on (`MODE_ON`, `:281-283`) vs. fast blink (`MODE_BLINK`/`MAX_LEVEL`, `:301-303`) — see §5.2 for a UX note |
 | Fail loudly, fail early | `anyhow::bail!` on empty `wifi_ssid` (`:93`); invalid `switch` payload rejected + reported (`reason:"rejected_invalid_switch"`) |
 | Reusable ESP32-Rust reference | `esp32-rust-idf` global skill + `DEVELOPMENT_JOURNEY.md` |
 
