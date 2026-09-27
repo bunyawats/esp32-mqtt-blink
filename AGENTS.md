@@ -33,8 +33,9 @@ espflash flash --monitor target/xtensa-esp32-espidf/release/esp32-mqtt-blink
 
 ## Architecture
 
-All code in `src/main.rs` — one file, no modules. Five threads in `main()`:
+All code in `src/main.rs` — one file, no modules. Threads in `main()`:
 
+0. **WiFi watchdog thread** — esp-idf-svc doesn't reconnect WiFi by itself; this checks every 5s and reconnects while down. A failed WiFi connect at boot is non-fatal (the watchdog retries, and the offline fallback fast-blinks meanwhile).
 1. **Connection-draining thread** — pumps `connection.next()` continuously. **Never** call `subscribe`/`publish`/`enqueue` from here; it deadlocks the client.
 2. **Subscriber thread** — never exits; retries `subscribe()` with 500ms backoff at boot and again after every `Disconnected` (thread #1 only sets a `need_subscribe` flag). First attempt **expected** to fail with `ESP_FAIL` (pre-connection handshake). The `connected_default` boot default fires after the first subscribe only.
 3. **Status-publisher thread** — receives `(level, reason)` via `mpsc::channel` from thread #1, calls blocking `publish()`. This indirection keeps blocking calls off the draining thread.

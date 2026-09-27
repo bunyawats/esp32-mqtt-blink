@@ -96,11 +96,20 @@ table-building loop deliberately uses `while` — don't "simplify" that to a `fo
 compile in const context. The mapping is currently linear (see README for the exponential-curve
 alternative under consideration).
 
-Runtime shape (all in `main()`): WiFi (`BlockingWifi`, connects using `cfg.toml` credentials
-before anything else runs) + six threads sharing state via `Arc<AtomicU32>` (`level`),
+Runtime shape (all in `main()`): WiFi (`BlockingWifi`, first connect attempt using `cfg.toml`
+credentials before anything else runs — **non-fatal** if the AP is unreachable, see the WiFi
+watchdog below) + seven threads sharing state via `Arc<AtomicU32>` (`level`),
 `Arc<AtomicU8>` (`mode`), `Arc<AtomicBool>` (`got_real_command`, `subscribed`,
 `need_subscribe`), and
 `Arc<Mutex<EspMqttClient>>` (MQTT client), plus the main thread's display loop:
+
+- **WiFi watchdog thread**: owns the `BlockingWifi` after the boot attempt. esp-idf-svc doesn't
+  reconnect the station on its own, so every `WIFI_CHECK_SECS` (5s) it checks `is_up()` and, while
+  down, calls `connect_wifi()` (connect if not associated, then `wait_netif_up()`). Logs `WiFi
+  down` once per outage. Spawned with an 8 KiB stack (`WIFI_WATCHDOG_STACK`) — the default 3 KiB
+  pthread stack is too tight for the `Debug`-formatted errors. Never touches `mode`/`level`: the
+  MQTT client reconnects by itself once the network is back, and the subscriber thread
+  resubscribes.
 
 - **`mode`** is the LED's top-level state — `MODE_OFF` / `MODE_ON` / `MODE_BLINK` (plain `u8`
   constants, not a real Rust `enum`, since `std::sync::atomic` has no generic atomic-enum type).
@@ -140,7 +149,8 @@ before anything else runs) + six threads sharing state via `Arc<AtomicU32>` (`le
   `need_subscribe` is deliberately a separate flag from `subscribed`: reusing `subscribed` would
   let a disconnect inside the 10s boot window re-arm the offline fallback below.
 - **Offline-fallback thread**: sleeps `OFFLINE_FALLBACK_SECS` (10s) after spawning (i.e. ~10s
-  after WiFi connects), then if `subscribed` is still `false`, applies `level=MAX_LEVEL,
+  after the boot WiFi attempt, whether it succeeded or not — so a router that's down at boot
+  also gets the fast-blink), then if `subscribed` is still `false`, applies `level=MAX_LEVEL,
   mode=MODE_BLINK` (`reason:"offline_fallback"`) — a fast-blink "can't reach the broker" signal.
   **Gated on `subscribed`, not `got_real_command`** — neither boot default sets
   `got_real_command` (only a real inbound command does), so gating the fallback on it instead

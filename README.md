@@ -140,8 +140,9 @@ actually driving the LED while it's held statically on/off:
 
 Before any command arrives from the network, the firmware picks a state on its own:
 
-- **Can't reach the broker within 10s of WiFi connecting** → `blink 10` (fast-blink distress
-  signal), `reason:"offline_fallback"`.
+- **Can't reach the broker within 10s of the boot WiFi attempt** (including WiFi itself being
+  down) → `blink 10` (fast-blink distress signal), `reason:"offline_fallback"`. WiFi keeps
+  retrying every 5s in the background, at boot and after any later dropout.
 - **Successfully subscribes, no command received yet** → `switch on` (solid light = "alive,
   connected, idle"), `reason:"connected_default"`. This still applies even if the offline
   fallback already fired first — a broker that comes up late correctly overrides the fast-blink

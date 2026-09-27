@@ -38,8 +38,12 @@ const MAX_DELAY_MS: u32 = 1000; // delay at level 1 (slowest)
 const MAX_LEVEL: u32 = 10;
 const HEARTBEAT_SECS: u64 = 30;
 const OFF_POLL_MS: u32 = 100; // how often to re-check state while static (mode Off/On)
-const OFFLINE_FALLBACK_SECS: u64 = 10; // boot-time window to wait for MQTT subscribe before assuming offline
+const OFFLINE_FALLBACK_SECS: u64 = 10; // boot-time window (after the first WiFi attempt) to wait for MQTT subscribe before assuming offline
 const SUBSCRIBE_RETRY_MS: u64 = 500; // subscribe retry backoff, and how often to check for a needed resubscribe
+const WIFI_CHECK_SECS: u64 = 5; // how often the WiFi watchdog checks the link
+/// `connect()`/`wait_netif_up()` log errors with Debug formatting; the default pthread stack
+/// (3 KiB) is too tight for that.
+const WIFI_WATCHDOG_STACK: usize = 8 * 1024;
 
 // --- LED display mode: three mutually exclusive top-level states, not a level plus a gate.
 // `Off`/`On` are symmetric static states — the main loop just holds the pin and polls for a
@@ -114,9 +118,40 @@ fn main() -> anyhow::Result<()> {
     }))?;
 
     wifi.start()?;
-    wifi.connect()?;
-    wifi.wait_netif_up()?;
-    log::info!("WiFi connected");
+    // Non-fatal: if the AP is unreachable at boot, the watchdog below keeps retrying and the
+    // offline-fallback fast-blink shows "can't reach the broker" in the meantime.
+    match connect_wifi(&mut wifi) {
+        Ok(()) => log::info!("WiFi connected"),
+        Err(e) => log::warn!("WiFi connect failed at boot: {e:?}, watchdog will retry"),
+    }
+
+    // --- WiFi watchdog thread: owns `wifi` from here on. esp-idf-svc doesn't reconnect the
+    // station on its own, so after a router reboot or AP dropout this retries every
+    // WIFI_CHECK_SECS until the interface is back up. Never touches `mode`/`level` — the MQTT
+    // client reconnects by itself once the network returns, and the subscriber thread
+    // resubscribes. ---
+    thread::Builder::new()
+        .stack_size(WIFI_WATCHDOG_STACK)
+        .spawn(move || {
+            let mut down = false;
+            loop {
+                if !wifi.is_up().unwrap_or(false) {
+                    // Log once per outage, not on every retry.
+                    if !down {
+                        log::warn!("WiFi down, reconnecting...");
+                        down = true;
+                    }
+                    match connect_wifi(&mut wifi) {
+                        Ok(()) => {
+                            log::info!("WiFi reconnected");
+                            down = false;
+                        }
+                        Err(e) => log::debug!("WiFi reconnect failed: {e:?}"),
+                    }
+                }
+                thread::sleep(Duration::from_secs(WIFI_CHECK_SECS));
+            }
+        })?;
 
     // --- Shared state ---
     // `level`: current blink speed, 0..=10, only meaningful while `mode == MODE_BLINK`.
@@ -383,6 +418,16 @@ fn main() -> anyhow::Result<()> {
             }
         }
     }
+}
+
+/// Brings the station up: associates with the AP if needed, then waits for an IP. Each step
+/// times out after ~15s inside esp-idf-svc.
+fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()> {
+    if !wifi.is_connected()? {
+        wifi.connect()?;
+    }
+    wifi.wait_netif_up()?;
+    Ok(())
 }
 
 /// Publishes a small JSON status payload, e.g.

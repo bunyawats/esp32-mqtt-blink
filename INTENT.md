@@ -32,6 +32,9 @@ verification. Nothing is simulated, and nothing is stubbed "for now."
   the two boot-time defaults (solid on vs. fast blink).
 - **Fail loudly, fail early.** Missing WiFi credentials `bail!` at startup instead of retrying
   silently. Invalid commands are rejected *and reported* on the status topic, not dropped.
+  (An unreachable AP is different: that's a transient network condition, not a config error, so
+  the firmware keeps retrying WiFi — but not silently: it logs the failure and the offline
+  fallback fast-blinks the LED.)
 - **A reusable ESP32-Rust reference.** This was also the vehicle for learning the
   `espup` / `esp-idf-svc` std stack. The transferable lessons live in the global `esp32-rust-idf`
   skill; the project-specific ones stay in `DEVELOPMENT_JOURNEY.md`.
