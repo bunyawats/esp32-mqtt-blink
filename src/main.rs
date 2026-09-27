@@ -39,6 +39,7 @@ const MAX_LEVEL: u32 = 10;
 const HEARTBEAT_SECS: u64 = 30;
 const OFF_POLL_MS: u32 = 100; // how often to re-check state while static (mode Off/On)
 const OFFLINE_FALLBACK_SECS: u64 = 10; // boot-time window to wait for MQTT subscribe before assuming offline
+const SUBSCRIBE_RETRY_MS: u64 = 500; // subscribe retry backoff, and how often to check for a needed resubscribe
 
 // --- LED display mode: three mutually exclusive top-level states, not a level plus a gate.
 // `Off`/`On` are symmetric static states — the main loop just holds the pin and polls for a
@@ -123,17 +124,24 @@ fn main() -> anyhow::Result<()> {
     // `got_real_command`: true once any real `blink`/`switch` command has been processed from
     // the network — guards the boot-time defaults below so they never clobber a real command,
     // regardless of how late they fire.
-    // `subscribed`: true once both topics are subscribed — guards the offline-fallback timer so
-    // a subscribe that succeeds just under the wire can't be clobbered by a late-firing fallback
-    // (got_real_command alone isn't enough for that, since neither boot default sets it).
+    // `subscribed`: true once both topics have been subscribed *at least once* (never cleared) —
+    // guards the offline-fallback timer so a subscribe that succeeds just under the wire can't be
+    // clobbered by a late-firing fallback (got_real_command alone isn't enough for that, since
+    // neither boot default sets it).
+    // `need_subscribe`: true whenever the broker may have dropped our subscriptions (initially,
+    // and after every `Disconnected` event — the client uses a clean session, and ESP-IDF's
+    // auto-reconnect doesn't restore them). Kept separate from `subscribed` so a mid-boot
+    // disconnect can't re-arm the one-time offline fallback.
     let level = Arc::new(AtomicU32::new(5)); // sane mid-speed default, dormant until Blink mode is entered
     let mode = Arc::new(AtomicU8::new(MODE_OFF));
     let got_real_command = Arc::new(AtomicBool::new(false));
     let subscribed = Arc::new(AtomicBool::new(false));
+    let need_subscribe = Arc::new(AtomicBool::new(true));
 
     let level_mqtt = level.clone();
     let mode_mqtt = mode.clone();
     let got_real_command_mqtt = got_real_command.clone();
+    let need_subscribe_mqtt = need_subscribe.clone();
 
     // --- MQTT setup ---
     let mqtt_config = MqttClientConfiguration {
@@ -166,6 +174,14 @@ fn main() -> anyhow::Result<()> {
         let topic_switch = app_config.topic_switch;
         thread::spawn(move || {
             while let Ok(event) = connection.next() {
+                // Only flag it — the subscriber thread does the actual resubscribe, since this
+                // thread must never call a blocking client method.
+                if matches!(event.payload(), esp_idf_svc::mqtt::client::EventPayload::Disconnected) {
+                    if !need_subscribe_mqtt.swap(true, Ordering::Relaxed) {
+                        log::warn!("MQTT disconnected — will resubscribe after reconnect");
+                    }
+                    continue;
+                }
                 if let esp_idf_svc::mqtt::client::EventPayload::Received { topic, data, .. } =
                     event.payload()
                 {
@@ -245,10 +261,12 @@ fn main() -> anyhow::Result<()> {
         });
     }
 
-    // --- Subscriber thread: retries subscribe() until it succeeds, for both topics in
-    // sequence, then applies the "connected" boot-time default. Must run concurrently with
-    // (not gated on events from) the draining thread above, and on a *different* thread than
-    // the one calling `connection.next()`, or the retries can't make progress. ---
+    // --- Subscriber thread: never exits. Whenever `need_subscribe` is set (at boot, and after
+    // every disconnect), retries subscribe() until it succeeds, for both topics in sequence.
+    // After the *first* successful round only, applies the "connected" boot-time default — a
+    // reconnect never touches `mode`. Must run concurrently with (not gated on events from) the
+    // draining thread above, and on a *different* thread than the one calling
+    // `connection.next()`, or the retries can't make progress. ---
     {
         let topic_speed = app_config.topic_speed;
         let topic_switch = app_config.topic_switch;
@@ -256,9 +274,18 @@ fn main() -> anyhow::Result<()> {
         let mode = mode.clone();
         let got_real_command = got_real_command.clone();
         let subscribed = subscribed.clone();
+        let need_subscribe = need_subscribe.clone();
         let status_tx = status_tx_connect;
-        thread::spawn(move || {
+        thread::spawn(move || loop {
+            // Clear the flag *before* subscribing: if a disconnect lands mid-round, the draining
+            // thread sets it again and the next iteration redoes the whole round.
+            if !need_subscribe.swap(false, Ordering::Relaxed) {
+                thread::sleep(Duration::from_millis(SUBSCRIBE_RETRY_MS));
+                continue;
+            }
+
             for topic in [topic_speed, topic_switch] {
+                let mut failures = 0u32;
                 loop {
                     match client_for_sub.lock().unwrap().subscribe(topic, QoS::AtLeastOnce) {
                         Ok(_) => {
@@ -266,14 +293,21 @@ fn main() -> anyhow::Result<()> {
                             break;
                         }
                         Err(e) => {
-                            log::warn!("Failed to subscribe to {topic}: {e:?}, retrying...");
-                            thread::sleep(Duration::from_millis(500));
+                            // Log only the first failure per burst so a long broker outage
+                            // doesn't flood the log every SUBSCRIBE_RETRY_MS.
+                            if failures == 0 {
+                                log::warn!("Failed to subscribe to {topic}: {e:?}, retrying...");
+                            }
+                            failures += 1;
+                            thread::sleep(Duration::from_millis(SUBSCRIBE_RETRY_MS));
                         }
                     }
                 }
             }
 
-            subscribed.store(true, Ordering::Relaxed);
+            if subscribed.swap(true, Ordering::Relaxed) {
+                continue; // resubscribe after a reconnect — leave `mode` alone
+            }
 
             // Boot-time "connected" default: only applies if no real command has arrived yet.
             // Deliberately allowed to fire even after the offline fallback below already did —

@@ -36,7 +36,7 @@ espflash flash --monitor target/xtensa-esp32-espidf/release/esp32-mqtt-blink
 All code in `src/main.rs` — one file, no modules. Five threads in `main()`:
 
 1. **Connection-draining thread** — pumps `connection.next()` continuously. **Never** call `subscribe`/`publish`/`enqueue` from here; it deadlocks the client.
-2. **Subscriber thread** — retries `subscribe()` with 500ms backoff. First attempt **expected** to fail with `ESP_FAIL` (pre-connection handshake).
+2. **Subscriber thread** — never exits; retries `subscribe()` with 500ms backoff at boot and again after every `Disconnected` (thread #1 only sets a `need_subscribe` flag). First attempt **expected** to fail with `ESP_FAIL` (pre-connection handshake). The `connected_default` boot default fires after the first subscribe only.
 3. **Status-publisher thread** — receives `(level, reason)` via `mpsc::channel` from thread #1, calls blocking `publish()`. This indirection keeps blocking calls off the draining thread.
 4. **Heartbeat thread** — republishes current level every 30s.
 5. **Main / blink loop** — drives `gpio2` (onboard LED) using `FreeRtos::delay_ms` and shared `AtomicU32`. Level 0 holds LED low and polls at 100ms.

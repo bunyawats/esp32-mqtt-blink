@@ -98,7 +98,8 @@ alternative under consideration).
 
 Runtime shape (all in `main()`): WiFi (`BlockingWifi`, connects using `cfg.toml` credentials
 before anything else runs) + six threads sharing state via `Arc<AtomicU32>` (`level`),
-`Arc<AtomicU8>` (`mode`), `Arc<AtomicBool>` (`got_real_command`, `subscribed`), and
+`Arc<AtomicU8>` (`mode`), `Arc<AtomicBool>` (`got_real_command`, `subscribed`,
+`need_subscribe`), and
 `Arc<Mutex<EspMqttClient>>` (MQTT client), plus the main thread's display loop:
 
 - **`mode`** is the LED's top-level state — `MODE_OFF` / `MODE_ON` / `MODE_BLINK` (plain `u8`
@@ -116,19 +117,28 @@ before anything else runs) + six threads sharing state via `Arc<AtomicU32>` (`le
   blocking client method (`subscribe`, `publish`, `enqueue`) from this thread; that deadlocks it
   (see DEVELOPMENT_JOURNEY.md #9) since it would then stop draining events, and the client can't
   progress internally.
+  - On `EventPayload::Disconnected` it only sets `need_subscribe=true` — the client uses a clean
+    session, so the broker drops our subscriptions, and ESP-IDF's auto-reconnect doesn't restore
+    them. The subscriber thread does the actual resubscribe.
   - Blink handler: parse as `u32`, validate against `MAX_LEVEL`, update `level`, set
     `mode=MODE_BLINK`, set `got_real_command=true` (even on out-of-range rejection — it's still
     real inbound traffic), send `(level, mode, reason)` on the status channel.
   - Switch handler: exact-match `"on"`/`"off"`/`"toggle"` — `toggle` reads the *current* `mode`
     before flipping it (`Blink`/`On` → `Off`; `Off` → `On`); anything else is rejected
     (`reason:"rejected_invalid_switch"`, `mode` untouched). Always sets `got_real_command=true`.
-- **Subscriber thread**: calls `subscribe()` for **both** `topic_speed` and `topic_switch` in
-  sequence, each in its own retry loop (500ms backoff) independent of any event. The first attempt
-  per topic is *expected* to fail with `ESP_FAIL` before the connection handshake completes —
-  that's normal (see DEVELOPMENT_JOURNEY.md #8), not a bug to silence. Must run on a separate
-  thread from the draining thread above. Once both succeed, sets `subscribed=true`, then applies
-  the **connect-time default** (`mode=MODE_ON`, `reason:"connected_default"`) if
-  `got_real_command` is still `false` — a solid LED meaning "alive, connected, no command yet."
+- **Subscriber thread**: never exits. Whenever `need_subscribe` is set (initially, and after every
+  disconnect), clears it and calls `subscribe()` for **both** `topic_speed` and `topic_switch` in
+  sequence, each in its own retry loop (`SUBSCRIBE_RETRY_MS`, 500ms backoff) independent of any
+  event — don't gate it on a `Connected` event, that has been seen to hang. Only the first
+  failure per retry burst is logged. The first attempt per topic is *expected* to fail with
+  `ESP_FAIL` before the connection handshake completes — that's normal (see
+  DEVELOPMENT_JOURNEY.md #8), not a bug to silence. Must run on a separate thread from the
+  draining thread above. After the **first** successful round only, sets `subscribed=true`
+  (never cleared again), then applies the **connect-time default** (`mode=MODE_ON`,
+  `reason:"connected_default"`) if `got_real_command` is still `false` — a solid LED meaning
+  "alive, connected, no command yet." A resubscribe after a reconnect never touches `mode`.
+  `need_subscribe` is deliberately a separate flag from `subscribed`: reusing `subscribed` would
+  let a disconnect inside the 10s boot window re-arm the offline fallback below.
 - **Offline-fallback thread**: sleeps `OFFLINE_FALLBACK_SECS` (10s) after spawning (i.e. ~10s
   after WiFi connects), then if `subscribed` is still `false`, applies `level=MAX_LEVEL,
   mode=MODE_BLINK` (`reason:"offline_fallback"`) — a fast-blink "can't reach the broker" signal.
