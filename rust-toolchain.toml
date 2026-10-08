@@ -1,2 +1,5 @@
 [toolchain]
-channel = "esp"
+# Pinned to 1.98.1.0: the 1.99.0.0 esp release's std fails to build for espidf
+# (`AT_FDCWD` not found in `libc`). Installed with
+# `espup install --toolchain-version 1.98.1.0 --name esp-1.98 --targets esp32`.
+channel = "esp-1.98"

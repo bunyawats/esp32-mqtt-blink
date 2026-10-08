@@ -8,6 +8,7 @@ Single-binary ESP32 firmware (Rust, `esp-idf-svc` std stack) that blinks an LED 
 # Prerequisites (one-time):
 cargo install espup
 espup install
+espup install --toolchain-version 1.98.1.0 --name esp-1.98 --targets esp32
 . $HOME/export-esp.sh
 cargo install espflash ldproxy
 
@@ -16,7 +17,7 @@ cargo build --release
 espflash flash --monitor target/xtensa-esp32-espidf/release/esp32-mqtt-blink
 ```
 
-- `rust-toolchain.toml` pins `channel = "esp"` — plain `stable` rustc lacks Xtensa codegen.
+- `rust-toolchain.toml` pins `channel = "esp-1.98"` (esp release 1.98.1.0): plain `stable` rustc lacks Xtensa codegen, and the 1.99.0.0 esp release can't build `std` for espidf (`AT_FDCWD` not found in `libc`).
 - `.cargo/config.toml` pins `target = "xtensa-esp32-espidf"` and `linker = "ldproxy"`.
 - If build fails with `can't find crate for core` or `Unsupported target`, the Xtensa env is not sourced.
 

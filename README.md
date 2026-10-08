@@ -27,6 +27,7 @@ non-goals, and the invariants any change should preserve.
 ```bash
 cargo install espup
 espup install
+espup install --toolchain-version 1.98.1.0 --name esp-1.98 --targets esp32
 # Source the generated env file as instructed by espup, e.g.:
 . $HOME/export-esp.sh
 
@@ -34,7 +35,8 @@ cargo install espflash ldproxy
 ```
 
 `rust-toolchain.toml` and `.cargo/config.toml` are committed in this repo and pin the
-`esp` rustup toolchain and `xtensa-esp32-espidf` target, so `cargo build` targets the
+`esp-1.98` rustup toolchain (esp release 1.98.1.0; the 1.99.0.0 release can't build `std` for
+ESP-IDF) and `xtensa-esp32-espidf` target, so `cargo build` targets the
 ESP32 correctly out of the box — no manual toolchain/target setup beyond the above.
 
 You'll also need an MQTT broker reachable from the device (e.g. Mosquitto,
@@ -156,7 +158,7 @@ Both defaults are one-time boot checks — verified end-to-end on real hardware,
 ```
 esp32-mqtt-blink/
 ├── .cargo/config.toml           # pins target = xtensa-esp32-espidf, linker = ldproxy
-├── rust-toolchain.toml          # pins the `esp` rustup toolchain
+├── rust-toolchain.toml          # pins the `esp-1.98` rustup toolchain
 ├── Cargo.toml
 ├── build.rs
 ├── cfg.toml.example              # committed template, no real values

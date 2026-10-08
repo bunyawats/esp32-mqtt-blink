@@ -30,6 +30,7 @@ rather than scoped to this project).
 ```bash
 cargo install espup
 espup install
+espup install --toolchain-version 1.98.1.0 --name esp-1.98 --targets esp32   # the pinned toolchain, see below
 . $HOME/export-esp.sh   # source the generated env file (path per espup's output)
 cargo install espflash ldproxy
 ```
@@ -39,9 +40,11 @@ fails with missing Xtensa target/toolchain errors, check that `export-esp.sh` wa
 
 Three project files pin the toolchain/target so a plain `cargo build` does the right thing instead
 of silently building for the host:
-- `rust-toolchain.toml` pins `channel = "esp"` — the plain `stable` rustc from rustup has no Xtensa
-  codegen support at all; only espup's `esp` toolchain does. Without this file, cargo silently uses
-  `stable` and fails deep in dependency compilation with `can't find crate for core`.
+- `rust-toolchain.toml` pins `channel = "esp-1.98"`, espup's Xtensa toolchain at release 1.98.1.0.
+  The plain `stable` rustc from rustup has no Xtensa codegen support at all. Without this file,
+  cargo silently uses `stable` and fails deep in dependency compilation with `can't find crate for
+  core`. It's pinned to 1.98.1.0 rather than the rolling `esp` toolchain because the 1.99.0.0 esp
+  release fails to build `std` for espidf (`AT_FDCWD` not found in `libc`).
 - `.cargo/config.toml` sets `target = "xtensa-esp32-espidf"` and `linker = "ldproxy"`. Without it,
   cargo defaults to the host target and `esp-idf-sys`'s build script rejects it outright
   (`Error: Unsupported target 'aarch64-apple-darwin'` or similar).
