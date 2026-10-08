@@ -22,6 +22,14 @@ connected to the broker, or fast-blinking (`blink 10`) if it can't reach MQTT wi
 `IMPLEMENTATION_PLAN.md` for the full design rationale, and `INTENT.md` for the project's purpose,
 non-goals, and the invariants any change should preserve.
 
+## Hardware
+
+![ESP32 dev board on a breadboard wired to a 2-channel 5V relay module](ESP32-RELAY-X2.jpg)
+
+ESP32 dev board on a breadboard (with a breadboard power-supply module), wired to a 2-channel
+Songle SRD-05VDC relay module (VCC, GND, and one IN line). The firmware currently drives the
+onboard LED on `gpio2`; the relay wiring is groundwork for switching a real load.
+
 ## Prerequisites
 
 ```bash
